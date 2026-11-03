@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LOGLIST WIKI</title>
+<style>
+:root{font-family:system-ui,Segoe UI,Arial,sans-serif;color:#252039;background:#f5f2fb}*{box-sizing:border-box}body{margin:0}header{background:linear-gradient(110deg,#40206f,#7650b5);color:white;padding:25px 18px}header h1{margin:0;font-size:clamp(23px,4vw,32px)}header p{margin:6px 0 0;opacity:.9}main{width:100%;max-width:none;margin:0;padding:14px 12px}.panel{background:white;border:1px solid #d7cbe9;border-radius:12px;padding:16px;box-shadow:0 3px 14px #30165b0c}.controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}input{flex:1;min-width:200px;padding:12px;border:2px solid #9d89bd;border-radius:8px;font:inherit}button{cursor:pointer;border:1px solid #64429b;border-radius:8px;padding:10px 14px;font:inherit;background:#fff;color:#482779}button:hover:not(:disabled){background:#eee7f9}button:disabled{opacity:.4;cursor:default}.primary{background:#58338e;color:white;font-weight:650}.primary:hover:not(:disabled){background:#42236f}.meta{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin:10px 0;color:#55476d;font-size:14px}.table-wrap{overflow:visible;max-height:none;border:2px solid #6f5a8e;border-radius:6px}table{border-collapse:separate;border-spacing:0;width:100%;min-width:0;table-layout:auto;font-size:clamp(10px,0.9vw,14px)}th,td{padding:8px 5px;overflow-wrap:anywhere;border-right:1px solid #8976a4;border-bottom:1px solid #aa9bbd;text-align:center;white-space:normal}th:last-child,td:last-child{border-right:0}thead th{position:sticky;top:0;z-index:2;background:#513084;color:white;border-bottom:2px solid #2f1753}tbody tr:nth-child(odd){background:#fff}tbody tr:nth-child(even){background:#e9e1f5}tbody tr:hover{background:#d5c4f0}td:first-child{font-weight:700;background:#e2d5f4}tbody tr:nth-child(even) td:first-child{background:#d3c0ee}.pagination{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:6px;margin-top:16px}.pagination button{padding:8px 12px}.pagination .active{background:#58338e;color:white;font-weight:700}.status{min-height:20px}#error{color:#ae2435}#loading{color:#58338e} @media(max-width:600px){main{padding:6px}.panel{padding:5px}th,td{padding:5px 2px;font-size:10px}.controls{padding:6px}.controls button{width:100%}header{padding:20px 14px}}
+</style>
+</head>
+<body>
+<header><h1>LOGLIST WIKI</h1><p>Daftar log dari sistem automation</p></header>
+<main><section class="panel">
+<div class="controls"><input id="search" type="search" placeholder="Cari kode kayu, misalnya B1234" aria-label="Cari data log"><button id="refresh" class="primary" type="button">⟳ Perbaharui Data</button></div>
+<div class="meta"><span id="info">Menyiapkan data...</span><span class="status" id="loading" role="status"></span><span id="error" role="alert"></span></div>
+<div class="table-wrap"><table><thead id="head"></thead><tbody id="body"></tbody></table></div>
+<nav class="pagination" id="pages" aria-label="Navigasi halaman tabel"></nav>
+</section></main>
+<script>
+'use strict';
+const CSV_URL='https://raw.githubusercontent.com/duniandis/data_apk/refs/heads/main/loglist2.csv';
+const PAGE_SIZE=50;
+const $=id=>document.getElementById(id);
+let headers=[],rows=[],filtered=[],page=1,controller=null;
+// Parser CSV mendukung tanda kutip, koma di dalam sel, dan newline di dalam kutip.
+function parseCSV(text){
+ text=text.replace(/^\uFEFF/,'');const out=[];let row=[],cell='',quoted=false;
+ for(let i=0;i<text.length;i++){
+  const c=text[i];
+  if(c==='"'){
+   if(quoted&&text[i+1]==='"'){cell+='"';i++;}else quoted=!quoted;
+  }else if(c===','&&!quoted){row.push(cell);cell='';}
+  else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(v=>v!==''))out.push(row);row=[];cell='';}
+  else cell+=c;
+ }
+ if(cell!==''||row.length){row.push(cell);if(row.some(v=>v!==''))out.push(row);}
+ return out;
+}
+function td(tag,value){const e=document.createElement(tag);e.textContent=value;return e;}
+function render(){
+ const totalPages=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));page=Math.min(Math.max(1,page),totalPages);
+ const start=(page-1)*PAGE_SIZE;const body=$('body');body.replaceChildren();
+ const frag=document.createDocumentFragment();
+ filtered.slice(start,start+PAGE_SIZE).forEach((r,i)=>{const tr=document.createElement('tr');tr.appendChild(td('td',start+i+1));headers.forEach((_,j)=>tr.appendChild(td('td',r[j]??'')));frag.appendChild(tr);});
+ if(!filtered.length){const tr=document.createElement('tr'),cell=td('td',rows.length?'Tidak ada data yang cocok.':'Belum ada data.');cell.colSpan=headers.length+1;tr.appendChild(cell);frag.appendChild(tr);}
+ body.appendChild(frag);
+ $('info').textContent=`${filtered.length.toLocaleString('id-ID')} dari ${rows.length.toLocaleString('id-ID')} data • Menampilkan ${filtered.length?start+1:0}–${Math.min(start+PAGE_SIZE,filtered.length)} • Halaman ${page} dari ${totalPages}`;
+ const nav=$('pages');nav.replaceChildren();
+ const add=(label,target,disabled=false,active=false)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.disabled=disabled;b.className=active?'active':'';if(active)b.setAttribute('aria-current','page');b.addEventListener('click',()=>{page=target;render();document.querySelector('.panel').scrollIntoView({behavior:'smooth',block:'start'});});nav.appendChild(b);};
+ add('« Awal',1,page===1);add('‹',page-1,page===1);
+ let first=Math.max(1,page-2),last=Math.min(totalPages,first+4);first=Math.max(1,last-4);
+ for(let p=first;p<=last;p++)add(String(p),p,false,p===page);
+ add('›',page+1,page===totalPages);add('Akhir »',totalPages,page===totalPages);
+}
+function applySearch(){const q=$('search').value.trim().toLocaleLowerCase('id-ID');filtered=q?rows.filter(r=>r.some(v=>String(v??'').toLocaleLowerCase('id-ID').includes(q))):rows;page=1;render();}
+async function loadData(){
+ if(controller)controller.abort();controller=new AbortController();const signal=controller.signal;
+ $('refresh').disabled=true;$('loading').textContent='Mengambil data terbaru...';$('error').textContent='';
+ try{
+  const url=CSV_URL+(CSV_URL.includes('?')?'&':'?')+'_='+Date.now();
+  const res=await fetch(url,{cache:'no-store',signal});if(!res.ok)throw Error('HTTP '+res.status);
+  const parsed=parseCSV(await res.text());if(!parsed.length)throw Error('CSV kosong');
+  const newHeaders=parsed[0];const newRows=parsed.slice(1).filter(r=>r.some(v=>v.trim()!==''));
+  headers=newHeaders;rows=newRows;
+  const tr=document.createElement('tr');tr.appendChild(td('th','No. Urut'));headers.forEach(h=>tr.appendChild(td('th',h)));$('head').replaceChildren(tr);
+  applySearch();$('loading').textContent='Data berhasil diperbaharui • '+new Date().toLocaleTimeString('id-ID');
+ }catch(e){if(e.name!=='AbortError'){$('error').textContent='Gagal mengambil CSV: '+e.message+'. Data sebelumnya tetap ditampilkan.';}}
+ finally{if(!signal.aborted){$('refresh').disabled=false;if(!rows.length)$('loading').textContent='';}}
+}
+$('search').addEventListener('input',applySearch);$('refresh').addEventListener('click',()=>{window.location.reload();});loadData();
+</script>
+</body></html>
