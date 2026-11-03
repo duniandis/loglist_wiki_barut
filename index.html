@@ -20,7 +20,7 @@ th,td{white-space:nowrap;overflow-wrap:normal;padding:9px 10px}
 <body>
 <header><div class="brand"><img src="LOGO.png" alt="Logo WIKI"><div><h1>LOGLIST WIKI</h1><p>Daftar log dari sistem automation</p></div></div></header>
 <main><section class="panel">
-<div class="controls"><input id="search" type="search" placeholder="Cari kode kayu, misalnya B1234" aria-label="Cari data log"><button id="refresh" class="primary" type="button">⟳ Perbaharui Data</button><a class="stock-link" href="https://duniandis.github.io/stock_kayu_wiki_barut/">REKAP STOCK</a></div>
+<div class="controls"><input id="search" type="search" placeholder="Cari kode kayu, misalnya B1234" aria-label="Cari data log"><button id="refresh" class="primary" type="button">⟳ Perbaharui Data</button><a class="stock-link" href="https://duniandis.github.io/stock_kayu_wiki_barut/">REKAP STOCK</a><button id="download" type="button" disabled>⬇ Download Loglist (.csv)</button></div>
 <div class="meta"><span id="info">Menyiapkan data...</span><span class="status" id="loading" role="status"></span><span id="error" role="alert"></span></div>
 <div class="table-wrap"><table><thead id="head"></thead><tbody id="body"></tbody></table></div>
 <nav class="pagination" id="pages" aria-label="Navigasi halaman tabel"></nav>
@@ -45,12 +45,37 @@ function parseCSV(text){
  if(cell!==''||row.length){row.push(cell);if(row.some(v=>v!==''))out.push(row);}
  return out;
 }
+function formatCell(value,header){
+ const h=String(header).trim().toLowerCase();
+ if(!(/panjang|volume|\bvol\b/.test(h)))return value;
+ const raw=String(value??'').trim();
+ if(!raw)return raw;
+ // Pertahankan angka sebagai teks; gunakan titik desimal dan tepat dua digit.
+ let n=raw.replace(/\s/g,'');
+ if(/^[-+]?\d{1,3}(?:\.\d{3})+,\d+$/.test(n))n=n.replace(/\./g,'').replace(',','.');
+ else if(/^[-+]?\d+,\d+$/.test(n))n=n.replace(',','.');
+ if(!/^[-+]?(?:\d+\.?\d*|\.\d+)$/.test(n))return value;
+ const number=Number(n);
+ return Number.isFinite(number)?number.toFixed(2):value;
+}
+function csvEscape(value){const s=String(value??'');return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}
+function downloadLoglist(){
+ if(!headers.length)return;
+ const data=[headers,...rows.map(r=>headers.map((h,j)=>formatCell(r[j]??'',h)))];
+ const csv='\uFEFF'+data.map(r=>r.map(csvEscape).join(',')).join('\r\n');
+ const now=new Date();const pad=n=>String(n).padStart(2,'0');
+ const stamp=`${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+ const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+ const url=URL.createObjectURL(blob),a=document.createElement('a');
+ a.href=url;a.download=`Loglist_${stamp}.csv`;document.body.appendChild(a);a.click();a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
 function td(tag,value){const e=document.createElement(tag);e.textContent=value;return e;}
 function render(){
  const totalPages=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));page=Math.min(Math.max(1,page),totalPages);
  const start=(page-1)*PAGE_SIZE;const body=$('body');body.replaceChildren();
  const frag=document.createDocumentFragment();
- filtered.slice(start,start+PAGE_SIZE).forEach((r,i)=>{const tr=document.createElement('tr');tr.appendChild(td('td',start+i+1));headers.forEach((_,j)=>tr.appendChild(td('td',r[j]??'')));frag.appendChild(tr);});
+ filtered.slice(start,start+PAGE_SIZE).forEach((r,i)=>{const tr=document.createElement('tr');tr.appendChild(td('td',start+i+1));headers.forEach((h,j)=>tr.appendChild(td('td',formatCell(r[j]??'',h))));frag.appendChild(tr);});
  if(!filtered.length){const tr=document.createElement('tr'),cell=td('td',rows.length?'Tidak ada data yang cocok.':'Belum ada data.');cell.colSpan=headers.length+1;tr.appendChild(cell);frag.appendChild(tr);}
  body.appendChild(frag);
  $('info').textContent=`${filtered.length.toLocaleString('id-ID')} dari ${rows.length.toLocaleString('id-ID')} data • Menampilkan ${filtered.length?start+1:0}–${Math.min(start+PAGE_SIZE,filtered.length)} • Halaman ${page} dari ${totalPages}`;
@@ -70,12 +95,12 @@ async function loadData(){
   const res=await fetch(url,{cache:'no-store',signal});if(!res.ok)throw Error('HTTP '+res.status);
   const parsed=parseCSV(await res.text());if(!parsed.length)throw Error('CSV kosong');
   const newHeaders=parsed[0];const newRows=parsed.slice(1).filter(r=>r.some(v=>v.trim()!==''));
-  headers=newHeaders;rows=newRows;
+  headers=newHeaders;rows=newRows;$('download').disabled=false;
   const tr=document.createElement('tr');tr.appendChild(td('th','No. Urut'));headers.forEach(h=>tr.appendChild(td('th',h)));$('head').replaceChildren(tr);
   applySearch();$('loading').textContent='Data berhasil diperbaharui • '+new Date().toLocaleTimeString('id-ID');
  }catch(e){if(e.name!=='AbortError'){$('error').textContent='Gagal mengambil CSV: '+e.message+'. Data sebelumnya tetap ditampilkan.';}}
  finally{if(!signal.aborted){$('refresh').disabled=false;if(!rows.length)$('loading').textContent='';}}
 }
-$('search').addEventListener('input',applySearch);$('refresh').addEventListener('click',()=>{window.location.reload();});loadData();
+$('download').addEventListener('click',downloadLoglist);$('search').addEventListener('input',applySearch);$('refresh').addEventListener('click',()=>{window.location.reload();});loadData();
 </script>
 </body></html>
